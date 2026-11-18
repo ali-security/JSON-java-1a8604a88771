@@ -117,4 +117,78 @@ public class Util {
             );
         }
     }
+
+    /**
+     * Stack size of the thread used by {@link #throwableFromLargeStack(Runnable)}.
+     */
+    private static final long LARGE_STACK_SIZE = 8L * 1024L * 1024L;
+
+    /**
+     * Runs the given task on a separate thread that has a large stack and
+     * returns whatever the task threw. The test suite may be run with a small
+     * stack (for example -Xss512k), which is barely enough for a parser that
+     * descends to its default maximum nesting depth. Running such checks on a
+     * thread with a known large stack makes sure that a rejection is caused by
+     * the nesting depth limit and not by the stack running out.
+     * @param task the code to run
+     * @return the Throwable thrown by the task, or null if it completed normally
+     */
+    public static Throwable throwableFromLargeStack(final Runnable task) {
+        final Throwable[] thrown = new Throwable[1];
+        Thread worker = new Thread(null, new Runnable() {
+            public void run() {
+                try {
+                    task.run();
+                } catch (Throwable t) {
+                    thrown[0] = t;
+                }
+            }
+        }, "large-stack-test", LARGE_STACK_SIZE);
+        worker.start();
+        try {
+            worker.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Interrupted while waiting for the large stack thread", e);
+        }
+        return thrown[0];
+    }
+
+    /**
+     * Asserts that the given throwable is the JSONException raised when a
+     * parser reaches its maximum nesting depth.
+     * @param thrown the throwable to check, null if nothing was thrown
+     * @param maxNestingDepth the maximum nesting depth expected in the message
+     */
+    public static void assertMaxNestingDepthReached(Throwable thrown, int maxNestingDepth) {
+        if (thrown == null) {
+            fail("Expecting a JSONException");
+        }
+        assertTrue("Wrong throwable thrown: expecting a JSONException but got <" + thrown + ">",
+                thrown instanceof JSONException);
+        assertTrue("Wrong throwable thrown: not expecting message <" + thrown.getMessage() + ">",
+                thrown.getMessage().startsWith("Maximum nesting depth of " + maxNestingDepth));
+    }
+
+    /**
+     * Builds a malformed XML document made of the given number of nested,
+     * never closed, opening tags.
+     * @param depth the number of opening tags
+     * @return the XML document
+     */
+    public static String deeplyNestedOpeningTags(int depth) {
+        return new String(new char[depth]).replace("\0", "<a>");
+    }
+
+    /**
+     * Builds a well-formed XML document made of the given number of nested
+     * elements.
+     * @param depth the number of nested elements
+     * @return the XML document
+     */
+    public static String deeplyNestedWellFormedXml(int depth) {
+        return deeplyNestedOpeningTags(depth) + "x"
+                + new String(new char[depth]).replace("\0", "</a>");
+    }
 }
